@@ -1,4 +1,4 @@
-# cargo-rail configuration for OpenAI's `codex-rs`                                                                                                                                                        │
+# cargo-rail configuration for OpenAI's `codex-rs`
 # Optimized for the leanest build graph and precise change detection
 
 # Platform targets for multi-target validation (auto-detected)
@@ -10,52 +10,112 @@ targets = [
 ]
 
 [unify]
-include_paths = true
-include_renamed = true       # Codex uses some renamed deps (package = "...")
-pin_transitives = false
-transitive_host = "root"
+detect_unused = true
+exact_pin_handling = "preserve" # Keep exact pins (patched crates like ratatui/crossterm)
 exclude = []
 include = []
-msrv = true
-strict_version_compat = false    # Allow flexibility for maximum deduplication
-exact_pin_handling = "preserve"  # Keep exact pins (patched crates like ratatui/crossterm)
-major_version_conflict = "bump"  # Force highest version for leanest graph
-detect_unused = true
-remove_unused = true
-prune_dead_features = true
+include_paths = true
+include_renamed = true # Codex uses some renamed deps (package = "...")
+major_version_conflict = "bump" # Force highest version for leanest graph
 max_backups = 3
+msrv = true
+pin_transitives = false
+prune_dead_features = true
+remove_unused = true
+strict_version_compat = false # Allow flexibility for maximum deduplication
+transitive_host = "root"
 
 [release]
-tag_prefix = "v"  # Prefix for all tags (used via {prefix} in tag_format)
-tag_format = "{crate}-{prefix}{version}"  # Variables: {prefix}, {crate}, {version}
-require_clean = true
-publish_delay = 5
-create_github_release = false
-sign_tags = true
 changelog_path = "CHANGELOG.md"
-changelog_relative_to = "crate"  # "crate" or "workspace" (default: crate)
-skip_changelog_for = []
+changelog_relative_to = "crate" # "crate" or "workspace" (default: crate)
+create_github_release = false
+publish_delay = 5
 require_changelog_entries = false
+require_clean = true
+sign_tags = true
+skip_changelog_for = []
+tag_format = "{crate}-{prefix}{version}" # Variables: {prefix}, {crate}, {version}
+tag_prefix = "v" # Prefix for all tags (used via {prefix} in tag_format)
 
 
 [change-detection]
-# Files that trigger full workspace rebuild when changed
 infrastructure = [
-  ".github/**",
-  "scripts/**",
+  # CI/CD
+  ".github/workflows/**",
+
+  # Rust workspace/toolchain
+  "Cargo.lock",
   "rust-toolchain.toml",
   ".cargo/config.toml",
-  "Cargo.lock",
   "clippy.toml",
   "rustfmt.toml",
+
+  # Security/quality
   "deny.toml",
+
+  # Nix
   "default.nix",
+
+  # cargo-rail config
+  ".config/rail.toml",
 ]
 
-# Custom categories for conditional CI (non-Cargo workflows)
 [change-detection.custom]
-# Documentation changes - trigger doc rebuild, not tests
-docs = ["docs/**", "*.md"]
+# Documentation (allows docs-only skip)
+docs = [
+  "docs/**",
+  "*.md",
+]
+
+# Scripts (CI, build, etc.)
+scripts = [
+  "scripts/**",
+]
+
+# TUI crate (ratatui-based terminal UI)
+tui = [
+  "tui/**",
+]
+
+# Sandbox implementations
+sandbox = [
+  "linux-sandbox/**",
+  "windows-sandbox-rs/**",
+  "execpolicy/**",
+  "execpolicy-legacy/**",
+  "process-hardening/**",
+]
+
+# MCP (Model Context Protocol)
+mcp = [
+  "mcp-server/**",
+  "mcp-types/**",
+  "rmcp-client/**",
+]
+
+# Backend clients (LLM providers)
+backends = [
+  "ollama/**",
+  "lmstudio/**",
+  "chatgpt/**",
+  "backend-client/**",
+  "codex-client/**",
+]
+
+# App server / protocol
+app-server = [
+  "app-server/**",
+  "app-server-protocol/**",
+  "app-server-test-client/**",
+]
+
+# Core functionality
+core = [
+  "core/**",
+  "exec/**",
+  "exec-server/**",
+  "protocol/**",
+]
 
 
 # Split/Sync: Use 'cargo rail split init <crate>' to configure individual crates
