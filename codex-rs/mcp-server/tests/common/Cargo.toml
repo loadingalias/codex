@@ -12,11 +12,13 @@ anyhow = { workspace = true }
 assert_cmd = { workspace = true }
 codex-core = { workspace = true }
 codex-mcp-server = { workspace = true }
+core_test_support = { workspace = true } #unified
 mcp-types = { workspace = true }
 os_info = { workspace = true }
 pretty_assertions = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+shlex = { workspace = true }
 tokio = { workspace = true, features = [
     "io-std",
     "macros",
@@ -24,5 +26,3 @@ tokio = { workspace = true, features = [
     "rt-multi-thread",
 ] }
 wiremock = { workspace = true }
-core_test_support = { path = "../../../core/tests/common" }
-shlex = { workspace = true }

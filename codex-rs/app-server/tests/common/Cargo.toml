@@ -15,8 +15,10 @@ chrono = { workspace = true }
 codex-app-server-protocol = { workspace = true }
 codex-core = { workspace = true }
 codex-protocol = { workspace = true }
+core_test_support = { workspace = true } #unified
 serde = { workspace = true }
 serde_json = { workspace = true }
+shlex = { workspace = true }
 tokio = { workspace = true, features = [
     "io-std",
     "macros",
@@ -25,5 +27,3 @@ tokio = { workspace = true, features = [
 ] }
 uuid = { workspace = true }
 wiremock = { workspace = true }
-core_test_support = { path = "../../../core/tests/common" }
-shlex = { workspace = true }
