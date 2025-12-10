@@ -1,0 +1,187 @@
+# cargo-rail: Graph-aware Rust CI for codex-rs
+#
+# Drop-in replacement for rust-ci.yml's change detection.
+# Uses cargo-rail's dependency graph instead of hand-rolled path filters.
+#
+# Benefits:
+#   - Skip CI entirely on docs-only changes
+#   - Test only affected crates for typical PRs
+#   - Full rebuild when infrastructure changes (Cargo.lock, CI, toolchain)
+#   - Single source of truth: rail.toml config shared by local + CI
+#
+# See: https://github.com/loadingalias/cargo-rail
+
+name: cargo-rail-ci
+on:
+  pull_request:
+    paths:
+      - "codex-rs/**"
+      - ".github/workflows/cargo-rail-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "codex-rs/**"
+  workflow_dispatch:
+
+jobs:
+  # ============================================================================
+  # Change Detection (single fast job using cargo-rail)
+  # ============================================================================
+  detect:
+    name: Detect changes
+    runs-on: ubuntu-24.04
+    outputs:
+      crates: ${{ steps.rail.outputs.crates }}
+      count: ${{ steps.rail.outputs.count }}
+      docs-only: ${{ steps.rail.outputs.docs-only }}
+      rebuild-all: ${{ steps.rail.outputs.rebuild-all }}
+      codegen: ${{ contains(steps.rail.outputs.custom-categories, 'codegen') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: loadingalias/cargo-rail-action@v1
+        id: rail
+        with:
+          working-directory: codex-rs
+
+  # ============================================================================
+  # Format / Codegen (quick checks)
+  # ============================================================================
+  format:
+    name: Format / Codegen
+    needs: detect
+    if: needs.detect.outputs.docs-only != 'true'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: codex-rs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90
+        with:
+          components: rustfmt
+
+      - name: cargo fmt
+        run: cargo fmt -- --config imports_granularity=Item --check
+
+      - name: Verify mcp-types codegen
+        if: needs.detect.outputs.codegen == 'true' || needs.detect.outputs.rebuild-all == 'true'
+        run: ./mcp-types/check_lib_rs.py
+
+  # ============================================================================
+  # Clippy (affected crates only, or all if rebuild_all)
+  # ============================================================================
+  clippy:
+    name: Clippy — ${{ matrix.target }}
+    needs: detect
+    if: needs.detect.outputs.docs-only != 'true' && needs.detect.outputs.count != '0'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: codex-rs
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            target: aarch64-apple-darwin
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90
+        with:
+          targets: ${{ matrix.target }}
+          components: clippy
+
+      - name: Clippy (affected)
+        if: needs.detect.outputs.rebuild-all != 'true'
+        run: |
+          cargo clippy --target ${{ matrix.target }} --all-features --tests \
+            -p ${{ needs.detect.outputs.crates }} -- -D warnings
+
+      - name: Clippy (all)
+        if: needs.detect.outputs.rebuild-all == 'true'
+        run: cargo clippy --target ${{ matrix.target }} --all-features --tests -- -D warnings
+
+  # ============================================================================
+  # Tests (affected crates only, or all if rebuild_all)
+  # ============================================================================
+  tests:
+    name: Test — ${{ matrix.target }}
+    needs: detect
+    if: needs.detect.outputs.docs-only != 'true' && needs.detect.outputs.count != '0'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: codex-rs
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            target: aarch64-apple-darwin
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+
+      - name: Test (affected)
+        if: needs.detect.outputs.rebuild-all != 'true'
+        run: |
+          cargo nextest run --target ${{ matrix.target }} --cargo-profile ci-test \
+            -p ${{ needs.detect.outputs.crates }}
+        env:
+          RUST_BACKTRACE: 1
+
+      - name: Test (all)
+        if: needs.detect.outputs.rebuild-all == 'true'
+        run: cargo nextest run --target ${{ matrix.target }} --cargo-profile ci-test --workspace
+        env:
+          RUST_BACKTRACE: 1
+
+  # ============================================================================
+  # Results (required status check)
+  # ============================================================================
+  results:
+    name: CI results
+    needs: [detect, format, clippy, tests]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Summarize
+        run: |
+          echo "## cargo-rail CI"
+          echo ""
+          echo "| Metric | Value |"
+          echo "|--------|-------|"
+          echo "| Affected | ${{ needs.detect.outputs.count }} crates |"
+          echo "| Docs-only | ${{ needs.detect.outputs.docs-only }} |"
+          echo "| Rebuild-all | ${{ needs.detect.outputs.rebuild-all }} |"
+          echo ""
+
+          if [[ "${{ needs.detect.outputs.docs-only }}" == "true" ]]; then
+            echo "✅ Documentation-only change - tests skipped"
+            exit 0
+          fi
+
+          failed=false
+          [[ "${{ needs.format.result }}" == "success" || "${{ needs.format.result }}" == "skipped" ]] || { echo "❌ Format failed"; failed=true; }
+          [[ "${{ needs.clippy.result }}" == "success" || "${{ needs.clippy.result }}" == "skipped" ]] || { echo "❌ Clippy failed"; failed=true; }
+          [[ "${{ needs.tests.result }}" == "success" || "${{ needs.tests.result }}" == "skipped" ]] || { echo "❌ Tests failed"; failed=true; }
+
+          $failed && exit 1
+          echo "✅ All checks passed"
